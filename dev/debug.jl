@@ -26,11 +26,8 @@
 # @info "Package path:" pathof(SymbolicRegression)
 # @assert contains(pathof(SymbolicRegression), pwd()) "Not using the local version!"
 
-
-
 # ###################### 
 # # exit()
-
 
 # X = randn(Float32, 5, 100)
 # # y = 2 * cos.(X[4, :]) + X[1, :] .^ 2 .- 2
@@ -45,8 +42,6 @@
 
 # # hall_of_fame = equation_search(X, y; options=options, parallelism=:multithreading)
 # hall_of_fame = equation_search(X, y; options=options, parallelism=:serial)
-
-
 
 # dominating = calculate_pareto_frontier(hall_of_fame)
 
@@ -65,7 +60,6 @@
 #     println("$(complexity)\t$(loss)\t$(string)")
 # end
 
-
 ###################################################################
 
 # julia --project=. dev/debug.jl
@@ -80,8 +74,8 @@ using StatProfilerHTML
 # Add the local source path to LOAD_PATH
 push!(LOAD_PATH, joinpath(@__DIR__, ".."))  # Add the parent directory (project root) to the path
 # Ensure using the development version
-import Pkg
-Pkg.develop(path=joinpath(@__DIR__, ".."))  # Add this line to explicitly specify using the local version
+using Pkg: Pkg
+Pkg.develop(; path=joinpath(@__DIR__, ".."))  # Add this line to explicitly specify using the local version
 
 # 2. Load development tools
 using Revise
@@ -105,11 +99,10 @@ using SymbolicRegression
 # 包装主要计算逻辑到一个函数中
 function main_computation()
     X = randn(Float32, 5, 100)
-    y = 2 * cos.(X[4, :]).^3 + X[1, :] .^ 2 .- 2
+    y = 2 * cos.(X[4, :]) .^ 3 + X[1, :] .^ 2 .- 2
 
     options = SymbolicRegression.Options(;
-        binary_operators=[+, *, /, -], 
-        unary_operators=[cos, exp, sin, log]
+        binary_operators=[+, *, /, -], unary_operators=[cos, exp, sin, log]
     )
 
     # hall_of_fame = equation_search(X, y; options=options, parallelism=:multithreading)
