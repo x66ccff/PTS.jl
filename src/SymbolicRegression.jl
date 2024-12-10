@@ -81,7 +81,6 @@ export Population,
     erf,
     erfc,
     atanh_clip,
-
     PSRNManager,
     start_psrn_task,
     process_psrn_results!
@@ -330,8 +329,6 @@ using .ExpressionBuilderModule: embed_metadata, strip_metadata
 
 import .PSRNmodel: PSRN, forward, get_expr, get_best_expressions
 
-
-
 @stable default_mode = "disable" begin
     include("deprecates.jl")
     include("Configure.jl")
@@ -371,7 +368,7 @@ function __init__()
     if @isdefined(oneAPI) && oneAPI.functional()
         AVAILABLE_BACKENDS[:oneapi] = oneBackend()
     end
-    AVAILABLE_BACKENDS[:cpu] = CPU()
+    return AVAILABLE_BACKENDS[:cpu] = CPU()
 end
 
 function get_preferred_backend()
@@ -850,31 +847,36 @@ mutable struct PSRNManager
     channel::Channel{Vector{Expression}}  # Channel for receiving PSRN results
     current_task::Union{Task,Nothing}     # Currently running PSRN task
     call_count::Int                       # PSRN call counter
-    
+
     PSRNManager() = new(Channel{Vector{Expression}}(32), nothing, 0)
 end
 
-
-function select_top_subtrees(common_subtrees::Dict{Node,Int}, n::Int, options::AbstractOptions)
+function select_top_subtrees(
+    common_subtrees::Dict{Node,Int}, n::Int, options::AbstractOptions
+)
     # 首先过滤出complexity <= 10的子树
-    filtered_subtrees = filter(pair -> begin
-        node = pair.first
-        # 使用compute_complexity计算每个子树的复杂度
-        complexity = compute_complexity(node, options)  # 使用默认options
-        return complexity <= 20
-    end, common_subtrees)
-    
+    filtered_subtrees = filter(
+        pair -> begin
+            node = pair.first
+            # 使用compute_complexity计算每个子树的复杂度
+            complexity = compute_complexity(node, options)  # 使用默认options
+            return complexity <= 20
+        end, common_subtrees
+    )
+
     # 按出现频率排序,添加随机噪声
-    sorted_subtrees = sort(collect(filtered_subtrees), by=x->(x[2] * (1.0 + 0.3 * randn())), rev=true)
-    
+    sorted_subtrees = sort(
+        collect(filtered_subtrees); by=x -> (x[2] * (1.0 + 0.3 * randn())), rev=true
+    )
+
     # 初始化结果数组
     result = Node[]
-    
+
     # 添加可用的子树
     for i in 1:min(n, length(sorted_subtrees))
         push!(result, sorted_subtrees[i][1])
     end
-    
+
     # 如果数量不足n，添加常数节点补充
     while length(result) < n
         # 计算当前需要填充的数字
@@ -885,18 +887,20 @@ function select_top_subtrees(common_subtrees::Dict{Node,Int}, n::Int, options::A
         # 使用命名参数构造函数创建节点
         push!(result, Node(; val=val))
     end
-    
+
     return result
 end
 
-function evaluate_subtrees(subtrees::Vector{Node}, dataset::Dataset, options::AbstractOptions)
+function evaluate_subtrees(
+    subtrees::Vector{Node}, dataset::Dataset, options::AbstractOptions
+)
     n_samples = size(dataset.X, 2)  # Use the number of columns as the number of samples
     n_subtrees = length(subtrees)
-    
+
     # Create a result matrix - using the same type as dataset.X
     T = eltype(dataset.X)
     result = zeros(T, n_samples, n_subtrees)
-    
+
     # @info "n_subtrees: $n_subtrees"
     # @info "n_samples: $n_samples"
 
@@ -907,22 +911,22 @@ function evaluate_subtrees(subtrees::Vector{Node}, dataset::Dataset, options::Ab
         else
             # Creates an Expression object, providing the necessary parameters
             # @info "Evaluating subtree: $subtree"  # Print the Node object first
-            
+
             # Use operators in options when creating an Expression
             expr = Expression(
-                subtree,
+                subtree;
                 operators=options.operators,  # Use operators in options
-                variable_names=dataset.variable_names  # Get variable_names from dataset
+                variable_names=dataset.variable_names,  # Get variable_names from dataset
             )
-            
+
             # Evaluate on data set X
             # @info "Starting eval_tree_array..."
             output, success = eval_tree_array(
-                expr, 
-                dataset.X  # Just use X, no transpose
+                expr,
+                dataset.X,  # Just use X, no transpose
             )
             # @info "eval_tree_array completed" success=success output_size=size(output)
-            
+
             if success
                 # If the output is one-dimensional, it is assigned directly to the corresponding column
                 if length(output) == n_samples
@@ -938,7 +942,7 @@ function evaluate_subtrees(subtrees::Vector{Node}, dataset::Dataset, options::Ab
             end
         end
     end
-    
+
     # @info "Evaluation complete" result_size=size(result)
     return result
 end
@@ -946,8 +950,8 @@ end
 function analyze_common_subtrees(trees::Vector{<:Expression})
     # TODO - This is obviously not efficient, but it works for now
 
-    subtree_counts = Dict{Node, Int}()
-    
+    subtree_counts = Dict{Node,Int}()
+
     for tree in trees
         if !isnothing(tree.tree)
             subtrees = get_subtrees(tree)
@@ -956,10 +960,10 @@ function analyze_common_subtrees(trees::Vector{<:Expression})
             end
         end
     end
-    
+
     threshold = length(trees) * 0.01 # TODO need to adjust this threshold in tghe future
     common_patterns = filter(p -> p.second >= threshold, subtree_counts)
-    
+
     if !isempty(common_patterns)
         # println("\nCommon subtree patterns:")
         for (pattern, count) in common_patterns
@@ -967,7 +971,7 @@ function analyze_common_subtrees(trees::Vector{<:Expression})
             # @info pattern
         end
     end
-    
+
     return common_patterns
 end
 
@@ -984,18 +988,18 @@ function get_subtrees(node::Node)
     if isnothing(node)
         return subtrees
     end
-    
+
     push!(subtrees, node)
-    
+
     # Recursive processing of left and right subtrees
     if isdefined(node, :l) && !isnothing(node.l)
         append!(subtrees, get_subtrees(node.l))
     end
-    
+
     if isdefined(node, :r) && !isnothing(node.r)
         append!(subtrees, get_subtrees(node.r))
     end
-    
+
     return subtrees
 end
 
@@ -1006,27 +1010,26 @@ function start_psrn_task(
     manager::PSRNManager,
     dominating_trees::Vector{<:Expression},
     dataset::Dataset,
-    options::AbstractOptions
+    options::AbstractOptions,
 )
     manager.call_count += 1
-    
+
     # Check if PSRN needs to be executed
     # TODO - This is obviously not efficient, but it works for now
     if manager.call_count % 2 != 0  # This command is executed every 10 times
-        return
+        return nothing
     end
-    
+
     # If an existing task is running, do not start a new task
     if manager.current_task !== nothing && !istaskdone(manager.current_task)
-        return
+        return nothing
     end
-    
-    @info "Starting PSRN computation ($(manager.call_count ÷ 2)/2 times)"
-    
-    # Start a new asynchronous task
-    manager.current_task = @async begin
-        try
 
+    @info "Starting PSRN computation ($(manager.call_count ÷ 2)/2 times)"
+
+    # Start a new asynchronous task
+    return manager.current_task = @async begin
+        try
             common_subtrees = analyze_common_subtrees(dominating_trees)
             # 1. Select the top 3 most common subtrees 
             # @info "Starting subtree selection..."
@@ -1042,20 +1045,24 @@ function start_psrn_task(
 
             # 3. Initialize the PSRN
             # @info "Initializing PSRN model..."
-            psrn = PSRN(
-                n_variables = length(top_subtrees),
-                operators = ["Add", "Mul", "Sub", "Div", "Identity", "Cos", "Sin", "Exp", "Log"],        # this should be the same as the operators in options
-                n_symbol_layers = 2, # TODO - only use 2 layers for debugging, and no DRmask
-                backend = get_preferred_backend(),
-                initial_expressions = top_subtrees,
-                options = options
+            psrn = PSRN(;
+                n_variables=length(top_subtrees),
+                operators=[
+                    "Add", "Mul", "Sub", "Div", "Identity", "Cos", "Sin", "Exp", "Log"
+                ],        # this should be the same as the operators in options
+                n_symbol_layers=2, # TODO - only use 2 layers for debugging, and no DRmask
+                backend=get_preferred_backend(),
+                initial_expressions=top_subtrees,
+                options=options,
             )
             # @info "PSRN model initialization complete" psrn
 
             # @info "Finding best expressions..."
 
             # function get_best_expressions(psrn::PSRN, X::AbstractArray, y::AbstractArray; top_k::Int=100)
-            best_expressions, mse_values = get_best_expressions(psrn, X_mapped, dataset.y, top_k=100)
+            best_expressions, mse_values = get_best_expressions(
+                psrn, X_mapped, dataset.y; top_k=100
+            )
             # @info "Found best expressions" length(best_expressions)
             # @info "MSE values:" mse_values
             # @info "Best expressions:" best_expressions
@@ -1081,7 +1088,7 @@ function process_psrn_results!(
     manager::PSRNManager,
     hall_of_fame::HallOfFame,
     dataset::Dataset,
-    options::AbstractOptions
+    options::AbstractOptions,
 )
     while isready(manager.channel)
         new_expressions = take!(manager.channel)
@@ -1091,9 +1098,9 @@ function process_psrn_results!(
                 converted_expr = Expression(
                     psrn_expr.tree;  # Only keep the tree structure
                     operators=nothing,  # Set to nothing
-                    variable_names=nothing  # Set to nothing
+                    variable_names=nothing,  # Set to nothing
                 )
-                
+
                 member = PopMember(dataset, converted_expr, options; deterministic=false)
                 # @info "PSRN member: $member"
                 # @info "type of member: $(typeof(member))"
@@ -1103,7 +1110,6 @@ function process_psrn_results!(
         end
     end
 end
-
 
 function _main_search_loop!(
     state::AbstractSearchState{T,L,N},
@@ -1205,7 +1211,7 @@ function _main_search_loop!(
 
             # Dominating pareto curve - must be better than all simpler equations
             dominating = calculate_pareto_frontier(state.halls_of_fame[j])
-            
+
             # println("dominating: ", dominating)
             # Parse trees in dominating solutions
             dominating_trees = [member.tree for member in dominating]
@@ -1218,13 +1224,10 @@ function _main_search_loop!(
 
                 # asynchronous calls PSRN
                 start_psrn_task(psrn_manager, dominating_trees, dataset, options)
-                
+
                 # process any completed PSRN results
                 process_psrn_results!(
-                    psrn_manager,
-                    state.halls_of_fame[j],
-                    dataset,
-                    options
+                    psrn_manager, state.halls_of_fame[j], dataset, options
                 )
             end
 
@@ -1373,7 +1376,6 @@ function _main_search_loop!(
     return nothing
 end
 
-
 function _tear_down!(
     state::AbstractSearchState, ropt::AbstractRuntimeOptions, options::AbstractOptions
 )
@@ -1478,7 +1480,6 @@ function _info_dump(
                 ropt.progress ? displaysize(stdout)[2] : nothing,
                 Some(nothing)
             )
-        
         )
         println(equation_strings)
     end
