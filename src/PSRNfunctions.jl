@@ -62,7 +62,7 @@ end
 
 @kernel function pow_kernel!(out, x1, x2)
     I = @index(Global)
-    @inbounds out[I] = x1[I] ^ x2[I]
+    @inbounds out[I] = x1[I]^x2[I]
 end
 
 @kernel function sqrt_kernel!(out, x)
@@ -74,36 +74,48 @@ end
 function execute_unary_op(kernel!, x, backend)
     # select appropriate workgroup size based on backend
     workgroup_size = backend isa KA.CPU ? 64 : 256
-    
+
     # create output array
     out = similar(x)
-    
+
     # create and execute kernel
     kernel = kernel!(backend, workgroup_size)
-    event = kernel(out, x, ndrange=size(x))
+    event = kernel(out, x; ndrange=size(x))
     wait(event)
-    
+
     return out
 end
 
 function execute_binary_op(kernel!, x1, x2, backend)
     # select appropriate workgroup size based on backend
     workgroup_size = backend isa KA.CPU ? 64 : 256
-    
+
     # create output array
     out = similar(x1)
-    
+
     # create and execute kernel
     kernel = kernel!(backend, workgroup_size)
-    event = kernel(out, x1, x2, ndrange=size(x1))
+    event = kernel(out, x1, x2; ndrange=size(x1))
     wait(event)
-    
+
     return out
 end
 
 # export all kernels and execution functions
-export identity_kernel!, add_kernel!, mul_kernel!, div_kernel!, sub_kernel!,
-       neg_kernel!, inv_kernel!, sin_kernel!, cos_kernel!, exp_kernel!,
-       log_kernel!, pow_kernel!, sqrt_kernel!, execute_unary_op, execute_binary_op
+export identity_kernel!,
+    add_kernel!,
+    mul_kernel!,
+    div_kernel!,
+    sub_kernel!,
+    neg_kernel!,
+    inv_kernel!,
+    sin_kernel!,
+    cos_kernel!,
+    exp_kernel!,
+    log_kernel!,
+    pow_kernel!,
+    sqrt_kernel!,
+    execute_unary_op,
+    execute_binary_op
 
 end
