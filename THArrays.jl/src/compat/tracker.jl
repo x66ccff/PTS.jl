@@ -155,8 +155,7 @@ macro grad_for_tensor(name)
             $name(t::TrackedTensor, args...) = track($name, t, args...)
             Tracker.@grad function $name(t::TrackedTensor, args...)
                 r = $name(data(t), data.(args)...)
-                return r,
-                (d) -> begin
+                return r, (d) -> begin
                     grads = map(args) do arg
                         if (arg isa TrackedTensor)
                             THAD.get_grad(data(arg), d)
